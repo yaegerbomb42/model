@@ -68,7 +68,9 @@ def collect_hidden_states(hf_id: str, layer_idx: int, prompts: list,
     model.eval()
 
     all_states = []
-    batch_size = 4
+    # Use smaller batches + shorter sequences to fit 70B/72B models in 32GB V100
+    batch_size = 2
+    max_len = 128  # 256 → 128 halves KV-cache memory
 
     for start in range(0, min(len(prompts), max_samples), batch_size):
         end = min(start + batch_size, len(prompts), max_samples)
@@ -79,37 +81,46 @@ def collect_hidden_states(hf_id: str, layer_idx: int, prompts: list,
             return_tensors="pt",
             padding=True,
             truncation=True,
-            max_length=256,
+            max_length=max_len,
         )
         input_ids = inputs["input_ids"].to(device)
         attn_mask = inputs["attention_mask"].to(device)
 
-        with torch.no_grad(), autocast(dtype=getattr(torch, DTYPE)):
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attn_mask,
-                output_hidden_states=True,
-            )
+        try:
+            with torch.no_grad(), autocast(dtype=getattr(torch, DTYPE)):
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attn_mask,
+                    output_hidden_states=True,
+                )
 
-        # Take hidden states at the specified layer
-        # outputs.hidden_states[layer_idx + 1] = output of layer layer_idx
-        hs_idx = min(layer_idx + 1, len(outputs.hidden_states) - 1)
-        h = outputs.hidden_states[hs_idx]  # (batch, seq, hidden_dim)
+            # Take hidden states at the specified layer
+            # outputs.hidden_states[layer_idx + 1] = output of layer layer_idx
+            hs_idx = min(layer_idx + 1, len(outputs.hidden_states) - 1)
+            h = outputs.hidden_states[hs_idx]  # (batch, seq, hidden_dim)
 
-        # Use mean-pooled representation (across non-padding tokens)
-        mask_expanded = attn_mask.unsqueeze(-1).float()
-        h_pooled = (h.float() * mask_expanded).sum(dim=1) / mask_expanded.sum(dim=1)
-        all_states.append(h_pooled.cpu())
+            # Use mean-pooled representation (across non-padding tokens)
+            mask_expanded = attn_mask.unsqueeze(-1).float()
+            h_pooled = (h.float() * mask_expanded).sum(dim=1) / mask_expanded.sum(dim=1)
+            all_states.append(h_pooled.cpu())
 
-        del outputs, input_ids, attn_mask
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            del outputs
+        except torch.cuda.OutOfMemoryError:
+            log.warning(f"  OOM on batch {start}:{end}, skipping batch.")
+        finally:
+            del input_ids, attn_mask
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     del model
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    # Brief pause to let CUDA runtime fully release pages
+    import time as _time; _time.sleep(5)
 
+    if not all_states:
+        raise RuntimeError(f"No hidden states collected for {hf_id} — all batches OOMed.")
     return torch.cat(all_states, dim=0)  # (N, hidden_dim)
 
 
@@ -202,19 +213,25 @@ def main():
     log.info(f"Unique hidden dimensions: {sorted(unique_dims)}")
     log.info(f"Models: {model_names}")
 
-    # Collect hidden states from each model at its representative middle layer
+    # Collect hidden states from each model at its representative middle layer.
+    # IMPORTANT: Run strictly sequentially on cuda:0 to avoid OOM from two
+    # large models resident simultaneously.
     model_hidden_states = {}
+    dev = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    for i, name in enumerate(model_names):
+    for name in model_names:
         hf_id = MODELS[name]
         layer_start, layer_end = LAYER_RANGES[name]
         # Use the middle layer as the representative
         rep_layer = (layer_start + layer_end) // 2
 
-        gpu_id = i % num_gpus
-        dev = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+        log.info(f"[{name}] Collecting hidden states at layer {rep_layer} on {dev} ...")
 
-        log.info(f"[{name}] Collecting hidden states at layer {rep_layer} on GPU {gpu_id} ...")
+        # Full GPU flush before loading next large model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
 
         # Load tokenizer for this model
         tokenizer = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=True)
@@ -228,6 +245,8 @@ def main():
 
         del tokenizer
         gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # Compute bridges for all pairs
     log.info("\nComputing bridge matrices for all model pairs ...")

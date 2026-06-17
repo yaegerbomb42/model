@@ -113,25 +113,29 @@ def fingerprint_model(name: str, hf_id: str, gpu_id: int):
         encodings, prompts, answers = load_calibration_data(tokenizer, max_rows=200)
 
         fingerprint = {}
-        batch_size = 4  # small batches to avoid OOM
+        batch_size = 2  # reduce to 2 to fit 70B/72B in V100 32GB
 
         log.info(f"[{name}] Running fingerprinting on layers {layer_start}-{layer_end - 1} ...")
 
         # Process in batches
-        all_hidden_states = []
-        all_logits = []
 
         for batch_start in range(0, len(prompts), batch_size):
             batch_end = min(batch_start + batch_size, len(prompts))
             batch_ids = encodings["input_ids"][batch_start:batch_end].to(device)
             batch_mask = encodings["attention_mask"][batch_start:batch_end].to(device)
 
-            with torch.no_grad(), autocast(dtype=getattr(torch, DTYPE)):
-                outputs = model(
-                    input_ids=batch_ids,
-                    attention_mask=batch_mask,
-                    output_hidden_states=True,
-                )
+            try:
+                with torch.no_grad(), autocast(dtype=getattr(torch, DTYPE)):
+                    outputs = model(
+                        input_ids=batch_ids,
+                        attention_mask=batch_mask,
+                        output_hidden_states=True,
+                    )
+            except torch.cuda.OutOfMemoryError:
+                log.warning(f"[{name}] OOM on batch {batch_start}:{batch_end}, skipping.")
+                del batch_ids, batch_mask
+                if torch.cuda.is_available(): torch.cuda.empty_cache()
+                continue
 
             # outputs.hidden_states is tuple of (n_layers + 1) tensors
             # each tensor shape: (batch, seq_len, hidden_dim)
@@ -173,8 +177,11 @@ def fingerprint_model(name: str, hf_id: str, gpu_id: int):
         log.info(f"[{name}] Computing logit sensitivity (no backward needed) ...")
 
         def get_layers(m):
-            if hasattr(m, "language_model") and hasattr(m.language_model, "model") and hasattr(m.language_model.model, "layers"):
-                return m.language_model.model.layers
+            # Gemma3 conditional generation wraps text model under language_model
+            if hasattr(m, "language_model"):
+                lm = m.language_model
+                if hasattr(lm, "model") and hasattr(lm.model, "layers"):
+                    return lm.model.layers
             if hasattr(m, "model") and hasattr(m.model, "layers"):
                 return m.model.layers
             if hasattr(m, "transformer") and hasattr(m.transformer, "h"):
