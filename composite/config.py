@@ -99,8 +99,8 @@ BRIDGE_FINETUNE_BATCH_SIZE     = 16
 # ─────────────────────────────────────────────────────────────────────────────
 # Calibration / benchmark datasets (HuggingFace dataset IDs)
 # ─────────────────────────────────────────────────────────────────────────────
-CALIBRATION_DATASET   = "gsm8k"          # used for fingerprinting + Procrustes
-BENCHMARK_DATASETS    = ["gsm8k", "hendrycks/competition_math", "openai_humaneval"]
+CALIBRATION_DATASET   = "openai/gsm8k"          # used for fingerprinting + Procrustes
+BENCHMARK_DATASETS    = ["openai/gsm8k", "hendrycks/competition_math", "openai_humaneval"]
 MAX_CALIBRATION_ROWS  = 500
 MAX_BENCHMARK_ROWS    = 200              # per dataset during evolutionary eval
 

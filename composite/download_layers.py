@@ -86,6 +86,9 @@ def download_all_models() -> dict:
 
 def get_layer_accessor(model):
     """Return the list of transformer layers from the model, handling different architectures."""
+    # Gemma 3 text transformer layers are nested under language_model
+    if hasattr(model, "language_model") and hasattr(model.language_model, "model") and hasattr(model.language_model.model, "layers"):
+        return model.language_model.model.layers
     # Most models (Llama, Qwen, Gemma, Mistral) use model.model.layers
     if hasattr(model, "model") and hasattr(model.model, "layers"):
         return model.model.layers
@@ -126,7 +129,10 @@ def extract_layers_for_model(name: str, hf_id: str, gpu_id: int):
 
         if QUANTIZE_INT8 and torch.cuda.is_available():
             from transformers import BitsAndBytesConfig
-            load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_enable_fp32_cpu_offload=True
+            )
             load_kwargs["device_map"] = "auto"
         else:
             load_kwargs["device_map"] = "auto"
