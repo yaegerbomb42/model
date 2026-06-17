@@ -1,0 +1,18 @@
+# Cache and temporary directories
+__pycache__/
+*.pyc
+.DS_Store
+
+# Large checkpoint files and binaries
+*.pt
+*.bin
+*.gcode
+*.stl
+
+# Local data cache
+composite/layer_cache/
+composite/bridges/
+composite/fingerprints/
+composite/evolution/
+composite/output/
+wikitext_corpus.txt
