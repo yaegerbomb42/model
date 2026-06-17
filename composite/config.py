@@ -31,7 +31,7 @@ MODELS = {
     # Frontier reasoning layers — frozen forever, never fine-tuned.
     "deepseek_32b":  "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
     "deepseek_70b":  "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
-    "qwen3_72b":     "Qwen/Qwen3-72B",
+    "qwen2_5_72b":     "Qwen/Qwen2.5-72B",
     "gemma_27b":     "google/gemma-3-27b-pt",  # pretrained weights preferred
     # "llama_405b":  "meta-llama/Llama-3.1-405B",  # enable if time/VRAM allows
 }
@@ -43,7 +43,7 @@ HIDDEN_DIMS = {
     "backbone":      3584,   # Qwen2 7B hidden dim
     "deepseek_32b":  5120,   # Qwen2 32B hidden dim
     "deepseek_70b":  8192,   # Llama 3 70B hidden dim
-    "qwen3_72b":     8192,   # Qwen3 72B hidden dim
+    "qwen2_5_72b":   8192,   # Qwen2.5 72B hidden dim
     "gemma_27b":     4608,   # Gemma 3 27B hidden dim
 }
 
@@ -51,7 +51,7 @@ NUM_LAYERS = {
     "backbone":      28,
     "deepseek_32b":  64,
     "deepseek_70b":  80,
-    "qwen3_72b":     80,
+    "qwen2_5_72b":   80,
     "gemma_27b":     62,
 }
 
@@ -60,7 +60,7 @@ LAYER_RANGES = {
     "backbone":      (11, 22),   # layers 11-21 inclusive
     "deepseek_32b":  (26, 51),   # layers 26-50
     "deepseek_70b":  (32, 64),   # layers 32-63
-    "qwen3_72b":     (32, 64),   # layers 32-63
+    "qwen2_5_72b":   (32, 64),   # layers 32-63
     "gemma_27b":     (25, 49),   # layers 25-48
 }
 
