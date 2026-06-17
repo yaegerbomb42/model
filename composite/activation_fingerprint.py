@@ -165,60 +165,82 @@ def fingerprint_model(name: str, hf_id: str, gpu_id: int):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-        # Now compute gradient signal for each layer (more expensive)
-        log.info(f"[{name}] Computing gradient reasoning signal ...")
+        # PHASE 2b: Compute an output-logit sensitivity score for each layer.
+        # Strategy: patch-zero the output of each candidate layer one at a time
+        # in a no_grad forward pass on a tiny subset (10 samples, 1 at a time).
+        # Measure how much the final logits change → "logit_sensitivity".
+        # This avoids .backward() entirely and is OOM-safe on 8-bit quantized models.
+        log.info(f"[{name}] Computing logit sensitivity (no backward needed) ...")
 
-        # Use a smaller subset for gradient computation (expensive)
-        grad_samples = min(50, len(prompts))
-        for layer_idx in range(layer_start, min(layer_end, NUM_LAYERS[name])):
-            grad_signal_total = 0.0
-            grad_count = 0
+        def get_layers(m):
+            if hasattr(m, "language_model") and hasattr(m.language_model, "model") and hasattr(m.language_model.model, "layers"):
+                return m.language_model.model.layers
+            if hasattr(m, "model") and hasattr(m.model, "layers"):
+                return m.model.layers
+            if hasattr(m, "transformer") and hasattr(m.transformer, "h"):
+                return m.transformer.h
+            raise ValueError(f"Cannot find layer accessor: {type(m)}")
 
-            for i in range(0, grad_samples, 2):
-                batch_ids = encodings["input_ids"][i:i+2].to(device)
-                batch_mask = encodings["attention_mask"][i:i+2].to(device)
+        layers_list = get_layers(model)
+        n_cand = min(layer_end, len(layers_list)) - layer_start
+        sensitivity_samples = min(10, len(prompts))
 
-                # Enable gradient computation for this specific forward pass
-                model.zero_grad()
+        # First: get baseline logits for the sensitivity samples (no_grad)
+        baseline_logits_list = []
+        for i in range(sensitivity_samples):
+            batch_ids = encodings["input_ids"][i:i+1].to(device)
+            batch_mask = encodings["attention_mask"][i:i+1].to(device)
+            with torch.no_grad(), autocast(dtype=getattr(torch, DTYPE)):
+                out = model(input_ids=batch_ids, attention_mask=batch_mask)
+            baseline_logits_list.append(out.logits.detach().float().cpu())
+            del out, batch_ids, batch_mask
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-                # Hook to capture gradient at this layer
-                grad_norms = []
+        # For each candidate layer, zero its output residual via a forward hook
+        layer_sensitivities = {idx: 0.0 for idx in range(layer_start, min(layer_end, len(layers_list)))}
 
-                def hook_fn(module, grad_input, grad_output):
-                    if grad_output[0] is not None:
-                        grad_norms.append(grad_output[0].float().norm().item())
+        for layer_idx in range(layer_start, min(layer_end, len(layers_list))):
+            sens_total = 0.0
+            try:
+                # Hook that zeros the layer's output (ablation test)
+                def make_zero_hook(l_idx):
+                    def zero_hook(module, input, output):
+                        # output is a tuple; zero the hidden-state tensor
+                        if isinstance(output, tuple):
+                            return (torch.zeros_like(output[0]),) + output[1:]
+                        return torch.zeros_like(output)
+                    return zero_hook
 
-                # Get the layer
-                layers_list = model.model.layers if hasattr(model, "model") else model.transformer.h
-                if layer_idx < len(layers_list):
-                    handle = layers_list[layer_idx].register_full_backward_hook(hook_fn)
-
-                    try:
-                        with autocast(dtype=getattr(torch, DTYPE)):
-                            outputs = model(
-                                input_ids=batch_ids,
-                                attention_mask=batch_mask,
-                                labels=batch_ids,  # compute loss
-                            )
-                        loss = outputs.loss
-                        if loss is not None:
-                            loss.backward()
-                            if grad_norms:
-                                grad_signal_total += sum(grad_norms) / len(grad_norms)
-                                grad_count += 1
-                    except Exception as e:
-                        log.warning(f"  [{name}] Gradient computation failed at layer {layer_idx}: {e}")
-                    finally:
-                        handle.remove()
-                        model.zero_grad()
-                        del outputs
+                handle = layers_list[layer_idx].register_forward_hook(make_zero_hook(layer_idx))
+                try:
+                    for i in range(sensitivity_samples):
+                        batch_ids = encodings["input_ids"][i:i+1].to(device)
+                        batch_mask = encodings["attention_mask"][i:i+1].to(device)
+                        with torch.no_grad(), autocast(dtype=getattr(torch, DTYPE)):
+                            out = model(input_ids=batch_ids, attention_mask=batch_mask)
+                        ablated_logits = out.logits.detach().float().cpu()
+                        baseline = baseline_logits_list[i]
+                        # KL-like sensitivity: mean absolute logit difference
+                        diff = (ablated_logits - baseline).abs().mean().item()
+                        sens_total += diff
+                        del out, batch_ids, batch_mask, ablated_logits
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
+                finally:
+                    handle.remove()
+            except Exception as e:
+                log.warning(f"  [{name}] Sensitivity ablation failed at layer {layer_idx}: {e}")
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
+            layer_sensitivities[layer_idx] = sens_total / max(sensitivity_samples, 1)
+
+        # Save logit sensitivity as our gradient-proxy into fingerprint
+        for layer_idx in range(layer_start, min(layer_end, len(layers_list))):
             if layer_idx in fingerprint:
-                fingerprint[layer_idx]["reasoning_gradient_signal"] = (
-                    grad_signal_total / max(grad_count, 1)
-                )
+                fingerprint[layer_idx]["reasoning_gradient_signal"] = layer_sensitivities[layer_idx]
+
 
         # Normalize and compute final scores
         results = {}

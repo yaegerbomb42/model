@@ -12,6 +12,9 @@
 
 set -euo pipefail
 
+# Reduce CUDA memory fragmentation (important for V100 32GB with 8-bit models)
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${SCRIPT_DIR}/logs"
 mkdir -p "${LOG_DIR}"
