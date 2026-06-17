@@ -253,7 +253,7 @@ def main():
             return_tensors="pt",
             padding=True,
             truncation=True,
-            max_length=512,
+            max_length=256,  # 512→256 to fit V100 32GB with 8-bit backbone
         )
         input_ids = inputs["input_ids"].to(device)
         labels = input_ids.clone()

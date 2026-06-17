@@ -20,6 +20,7 @@ import copy
 from dataclasses import dataclass, field, asdict
 from typing import List, Tuple, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -146,7 +147,6 @@ def create_initial_population(pool: List[LayerSlot], pop_size: int) -> List[Chro
     probs = [w / total_weight for w in weights]
 
     while len(population) < pop_size:
-        import numpy as np
         indices = np.random.choice(len(pool), size=NUM_FRONTIER_SLOTS, replace=False, p=probs)
         slots = [copy.deepcopy(pool[i]) for i in indices]
         population.append(Chromosome(slots=slots))
@@ -272,8 +272,8 @@ class CompositeForward(nn.Module):
         # 2. Backbone prefix layers
         for idx in BACKBONE_PREFIX_LAYERS:
             if idx < len(self.backbone_layers):
-                h = self.backbone_layers[idx](h)[0] if isinstance(
-                    self.backbone_layers[idx](h), tuple) else self.backbone_layers[idx](h)
+                out = self.backbone_layers[idx](h)
+                h = out[0] if isinstance(out, tuple) else out
 
         # 3. Frontier layers with bridges
         for i, (layer, W_pre, W_post) in enumerate(

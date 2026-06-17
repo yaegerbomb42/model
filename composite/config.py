@@ -94,7 +94,7 @@ EVOL_PARALLEL_WORKERS  = 2     # one per GPU
 PROCRUSTES_CALIBRATION_SAMPLES = 512   # sentences used to compute cross-covariance
 BRIDGE_FINETUNE_STEPS          = 300   # gradient steps on bridges after Procrustes init
 BRIDGE_FINETUNE_LR             = 5e-4
-BRIDGE_FINETUNE_BATCH_SIZE     = 16
+BRIDGE_FINETUNE_BATCH_SIZE     = 4     # 16→4 to fit V100 32GB with 8-bit backbone
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Calibration / benchmark datasets (HuggingFace dataset IDs)
