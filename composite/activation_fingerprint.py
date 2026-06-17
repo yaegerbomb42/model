@@ -99,7 +99,7 @@ def fingerprint_model(name: str, hf_id: str, gpu_id: int):
         }
         if torch.cuda.is_available():
             load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
-            load_kwargs["device_map"] = {"": gpu_id}
+            load_kwargs["device_map"] = "auto"
         else:
             load_kwargs["device_map"] = "cpu"
 

@@ -56,9 +56,8 @@ def collect_hidden_states(hf_id: str, layer_idx: int, prompts: list,
         "output_hidden_states": True,
     }
     if "cuda" in device:
-        gpu_id = int(device.split(":")[-1]) if ":" in device else 0
         load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
-        load_kwargs["device_map"] = {"": gpu_id}
+        load_kwargs["device_map"] = "auto"
     else:
         load_kwargs["device_map"] = "cpu"
 
