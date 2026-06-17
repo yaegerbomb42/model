@@ -86,7 +86,7 @@ EVOL_MUTATION_RATE     = 0.15
 EVOL_CROSSOVER_RATE    = 0.40
 EVOL_ELITE_FRACTION    = 0.10  # top 10% survive each generation unchanged
 EVOL_FITNESS_QUESTIONS = 100   # questions per fitness evaluation
-EVOL_PARALLEL_WORKERS  = 8     # one per GPU
+EVOL_PARALLEL_WORKERS  = 2     # one per GPU
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Bridge (Procrustes alignment) settings
