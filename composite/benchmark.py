@@ -55,7 +55,7 @@ def evaluate_model_on_gsm8k(model, tokenizer, device, max_rows=200, model_name="
     """Evaluate a model on GSM8K test set."""
     from datasets import load_dataset
 
-    ds = load_dataset("gsm8k", "main", split="test")
+    ds = load_dataset("openai/gsm8k", "main", split="test")
     ds = ds.select(range(min(max_rows, len(ds))))
 
     correct = 0

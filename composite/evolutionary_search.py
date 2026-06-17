@@ -441,7 +441,7 @@ def main():
 
     # Load evaluation data
     log.info("Loading evaluation data ...")
-    ds = load_dataset("gsm8k", "main", split="test")
+    ds = load_dataset("openai/gsm8k", "main", split="test")
     eval_data = [{"question": row["question"], "answer": row["answer"]}
                  for row in ds.select(range(min(EVOL_FITNESS_QUESTIONS, len(ds))))]
     log.info(f"Eval data: {len(eval_data)} questions")
