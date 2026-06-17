@@ -296,9 +296,15 @@ def main():
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
     log.info(f"Available GPUs: {num_gpus}")
 
+    from multiprocessing import Process
     for i, (name, hf_id) in enumerate(MODELS.items()):
         gpu_id = i % num_gpus
-        fingerprint_model(name, hf_id, gpu_id)
+        p = Process(target=fingerprint_model, args=(name, hf_id, gpu_id))
+        p.start()
+        p.join()
+        if p.exitcode != 0:
+            log.error(f"[{name}] Subprocess failed with exit code {p.exitcode}")
+            raise RuntimeError(f"Fingerprinting failed for model {name}")
 
     # Global summary
     log.info("\n" + "=" * 70)

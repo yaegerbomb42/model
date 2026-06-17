@@ -201,13 +201,19 @@ def extract_layers_for_model(name: str, hf_id: str, gpu_id: int):
 
 def extract_all_layers():
     """Extract reasoning layers from all models, distributing across GPUs."""
+    from multiprocessing import Process
     model_list = list(MODELS.items())
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
     log.info(f"Extracting layers using {num_gpus} GPU(s) ...")
 
     for i, (name, hf_id) in enumerate(model_list):
         gpu_id = i % num_gpus
-        extract_layers_for_model(name, hf_id, gpu_id)
+        p = Process(target=extract_layers_for_model, args=(name, hf_id, gpu_id))
+        p.start()
+        p.join()
+        if p.exitcode != 0:
+            log.error(f"[{name}] Subprocess failed with exit code {p.exitcode}")
+            raise RuntimeError(f"Layer extraction failed for model {name}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
